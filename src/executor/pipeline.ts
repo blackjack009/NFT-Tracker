@@ -214,18 +214,21 @@ async function relayOneTx(
   review: ReviewState,
   executor: ReturnType<typeof accountForKey>,
 ): Promise<boolean> {
-  const priceWei = BigInt(job.price_wei || '0') * BigInt(review.qty)
+  const unit = BigInt(job.price_wei || '0')
+  const total = unit * BigInt(review.qty)
   try {
-    if (priceWei <= 0n) throw new Error('mint gratis: tidak memerlukan rute 1-tx')
+    if (unit <= 0n) throw new Error('mint gratis: tidak memerlukan rute 1-tx')
+    // EXACT_OUTPUT amount = dana yang diterima di tujuan (unit×qty + fee kecil).
+    // Call mint hanya membawa value 1 unit; sisa mendarat di wallet untuk mint tambahan.
     const quote = await relayQuote({
       user: executor.address,
       originChainId: funding.chain.id,
       destinationChainId: dest.id,
       originCurrency: ZERO_ADDRESS,
       destinationCurrency: ZERO_ADDRESS,
-      amount: priceWei.toString(),
+      amount: (total + parseEther('0.001')).toString(),
       tradeType: 'EXACT_OUTPUT',
-      txs: [{ to: ctx.originalTx.to, value: priceWei.toString(), data: ctx.originalTx.data }],
+      txs: [{ to: ctx.originalTx.to, value: unit.toString(), data: ctx.originalTx.data }],
       txsGasLimit: 250_000,
     })
     assertGapOk(quote)
@@ -253,12 +256,20 @@ async function relayOneTx(
     }
     await board.finish(3)
     const tokenId = await findMintedTokenId(dest, ctx.originalTx.to, executor.address)
-    db.updateJob(job.id, 'done', JSON.stringify({ txHash: hash, tokenIds: tokenId ? [tokenId] : [] }), 'relay-1tx')
-    db.markSpend(job.id, BigInt(job.price_wei || '0') * BigInt(review.qty))
+    // mint tambahan memakai sisa dana yang mendarat di wallet tujuan
+    const tokenIds = tokenId ? [tokenId] : []
+    for (let i = 1; i < review.qty; i++) {
+      const extra = await directMint(dest, ctx.originalTx, job.minter, executor)
+      if (extra.ok && extra.tokenId) tokenIds.push(extra.tokenId)
+    }
+    db.updateJob(job.id, 'done', JSON.stringify({ txHash: hash, tokenIds }), 'relay-1tx')
+    db.markSpend(job.id, total)
     await sendCard(resultCard({
-      jobId: job.id, chain: dest, originChain: funding.chain, token: job.token,
-      tokenName: ctx.tokenName ?? 'Unknown', tokenIds: tokenId ? [tokenId] : [],
+      jobId: job.id, chain: dest, token: job.token,
+      tokenName: ctx.tokenName ?? 'Unknown', tokenIds,
       wallet: executor.address, mode: `Bridge+mint via Relay (1 tx) · qty ${review.qty}`, txHash: hash,
+      txExplorer: explorerTx(funding.chain, hash),
+      extra: `🌉 deposit: ${esc(funding.chain.name)} → ${esc(dest.name)}`,
     }))
     return true
   } catch (e) {
@@ -321,6 +332,7 @@ async function relayTwoStep(
     await sendCard(resultCard({
       jobId: job.id, chain: dest, token: job.token, tokenName: ctx.tokenName ?? 'Unknown',
       tokenIds: [], wallet: executor.address, mode: '2step', txHash: '', failed: `mint gagal (bridge OK): ${res.error}`,
+      bridge: { chain: funding.chain, hash },
     }))
     return
   }
@@ -334,9 +346,10 @@ async function relayTwoStep(
   db.updateJob(job.id, 'done', JSON.stringify({ txHash: res.txHash, tokenIds }), 'relay-2step')
   db.markSpend(job.id, BigInt(job.price_wei || '0') * BigInt(review.qty))
   await sendCard(resultCard({
-    jobId: job.id, chain: dest, originChain: funding.chain, token: job.token,
+    jobId: job.id, chain: dest, token: job.token,
     tokenName: ctx.tokenName ?? 'Unknown', tokenIds, wallet: executor.address,
     mode: `Bridge → mint (2 tx) · qty ${review.qty}`, txHash: res.txHash,
+    bridge: { chain: funding.chain, hash },
   }))
 }
 

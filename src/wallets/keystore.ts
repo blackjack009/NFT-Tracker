@@ -1,6 +1,6 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from 'node:fs'
-import { generateKeyPairSync } from 'node:crypto'
+import { randomBytes, createPrivateKey, createPublicKey } from 'node:crypto'
 import { join } from 'node:path'
 import { config } from '../config.js'
 
@@ -39,6 +39,20 @@ function base58(buf: Buffer): string {
 
 function evmAddress(pk: `0x${string}`): string {
   return privateKeyToAccount(pk).address
+}
+
+/** PKCS#8 header untuk ed25519 (16 byte) — dipakai rebuild key dari seed 32 byte. */
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex')
+
+/** Alamat Solana = base58(public key ed25519) yang diturunkan dari seed 32 byte. */
+function solAddress(seedHex: string): string {
+  const priv = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(seedHex, 'hex')]),
+    format: 'der',
+    type: 'pkcs8',
+  })
+  const pub = createPublicKey(priv).export({ type: 'spki', format: 'der' }).subarray(12)
+  return base58(pub)
 }
 
 export class Keystore {
@@ -109,10 +123,8 @@ export class Keystore {
       const pk = generatePrivateKey()
       w = { id: this.nextId('EVM'), type: 'EVM', key: pk, address: evmAddress(pk), preferred: false, createdAt: Date.now() }
     } else {
-      const seed = generateKeyPairSync('ed25519')
-      const seedHex = seed.privateKey.export({ type: 'pkcs8', format: 'der' }).subarray(16).toString('hex')
-      const pub = seed.publicKey.export({ type: 'spki', format: 'der' }).subarray(12)
-      w = { id: this.nextId('SOL'), type: 'SOL', key: seedHex, address: base58(pub), preferred: false, createdAt: Date.now() }
+      const seedHex = randomBytes(32).toString('hex')
+      w = { id: this.nextId('SOL'), type: 'SOL', key: seedHex, address: solAddress(seedHex), preferred: false, createdAt: Date.now() }
     }
     this.data.wallets.push(w)
     if (!this.data.wallets.some((x) => x.preferred && x.type === 'EVM') && w.type === 'EVM') w.preferred = true
@@ -133,7 +145,7 @@ export class Keystore {
       this.persist()
       return w
     }
-    const w: KeystoreWallet = { id: this.nextId('SOL'), type: 'SOL', key: hex, address: base58(Buffer.from(hex, 'hex')), preferred: false, createdAt: Date.now() }
+    const w: KeystoreWallet = { id: this.nextId('SOL'), type: 'SOL', key: hex, address: solAddress(hex), preferred: false, createdAt: Date.now() }
     this.data.wallets.push(w)
     this.persist()
     return w

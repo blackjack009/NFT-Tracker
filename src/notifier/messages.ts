@@ -36,7 +36,7 @@ export function alertCard(i: AlertInput): Card {
         .slice(0, 5)
         .map((c) => `• <b>${esc(c.label)}</b> <code>${shortAddr(c.addr)}</code>${c.count > 1 ? ` ×${c.count}` : ''}`)
         .join('\n') +
-      (i.heat > clusterTotal ? `\n• +${i.heat - clusterTotal} mint lain (${i.heat - clusterCount} wallet)` : '')
+      (i.heat > clusterTotal ? `\n• +${i.heat - clusterTotal} mint lain` : '')
     : ''
   const links = `<a href="${explorerTx(i.chain, i.txHash)}">tx</a> · <a href="${i.chain.explorer}/address/${i.token}">kontrak</a>${openseaCollectionUrl(i.chain, i.token) ? ` · <a href="${openseaCollectionUrl(i.chain, i.token)}">opensea</a>` : ''}`
   const text =
@@ -112,13 +112,16 @@ export function boardCard(args: { jobId: number; title: string; lines: BoardLine
 export function resultCard(args: {
   jobId: number
   chain: ChainConfig
-  originChain?: ChainConfig
   token: string
   tokenName: string
   tokenIds: string[]
   wallet: string
   mode: string
   txHash: string
+  /** link explorer utama (default: txHash di args.chain) — untuk 1-TX, hash deposit di chain asal */
+  txExplorer?: string
+  /** link bridge terpisah (2-TX: deposit di chain asal) */
+  bridge?: { chain: ChainConfig; hash: string }
   extra?: string
   failed?: string
 }): Card {
@@ -128,14 +131,15 @@ export function resultCard(args: {
       `❌ <b>GAGAL</b> — Job #${i.jobId}\n` +
       `🎨 ${esc(i.tokenName)} · ⛓️ ${esc(i.chain.name)}\n` +
       `📝 ${esc(i.failed)}` +
-      (i.txHash ? `\n🔗 <a href="${explorerTx(i.chain, i.txHash)}">tx</a>` : '')
+      (i.txHash ? `\n🔗 <a href="${i.txExplorer ?? explorerTx(i.chain, i.txHash)}">tx</a>` : '') +
+      (i.bridge ? ` · <a href="${explorerTx(i.bridge.chain, i.bridge.hash)}">bridge (${esc(i.bridge.chain.name)})</a>` : '')
     return { text, keyboard: new InlineKeyboard() }
   }
   const ids = i.tokenIds.length ? i.tokenIds.slice(0, 3).map((t) => `#${t}`).join(', ') + (i.tokenIds.length > 3 ? ` +${i.tokenIds.length - 3}` : '') : ''
   const asset = i.tokenIds[0] ? openseaAssetUrl(i.chain, i.token, i.tokenIds[0]) : null
   const coll = openseaCollectionUrl(i.chain, i.token)
-  const links: Array<[string, string]> = [[`tx`, explorerTx(i.chain, i.txHash)]]
-  if (i.originChain) links.push([`bridge (${i.originChain.name})`, explorerTx(i.originChain, i.txHash)])
+  const links: Array<[string, string]> = [[`tx`, i.txExplorer ?? explorerTx(i.chain, i.txHash)]]
+  if (i.bridge) links.push([`bridge (${i.bridge.chain.name})`, explorerTx(i.bridge.chain, i.bridge.hash)])
   const text =
     `✅ <b>MINT BERHASIL</b> — Job #${i.jobId}\n\n` +
     `🎨 <b>${esc(i.tokenName)}</b>${ids ? ' ' + ids : ''}\n` +

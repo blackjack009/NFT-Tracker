@@ -29,7 +29,11 @@ async function main(): Promise<void> {
   }
 
   setExecutor(executeJob)
-  await initTelegram(registerController)
+  try {
+    await initTelegram(registerController)
+  } catch (e) {
+    console.error('[telegram] init gagal — lanjut mode console:', e instanceof Error ? e.message : e)
+  }
 
   for (const key of config.chainsEnabled) {
     const chain = getChain(key)

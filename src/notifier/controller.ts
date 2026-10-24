@@ -76,6 +76,7 @@ export function registerController(bot: Bot): void {
 
   async function handleImportText(ctx: Context): Promise<void> {
     const text = ctx.msg?.text?.trim() ?? ''
+    if (!text || text.startsWith('/')) return // command bukan private key
     const [rawPk, label] = text.split(',')
     const hex = rawPk.trim().replace(/^0x/, '').toLowerCase()
     if (!/^[0-9a-f]{64}$/.test(hex)) {

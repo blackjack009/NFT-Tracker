@@ -65,7 +65,10 @@ export async function editCard(ref: MsgRef | null, card: Card): Promise<MsgRef |
       link_preview_options: { is_disabled: true },
     })
     return ref
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    // konten identik (mis. stepper mentok) — bukan error, jangan kirim duplikat
+    if (msg.includes('message is not modified')) return ref
     return sendCard(card)
   }
 }
